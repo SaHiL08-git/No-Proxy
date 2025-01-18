@@ -1,80 +1,17 @@
 'use client';
-import React, { useState, useEffect } from 'react';
-import axios from 'axios';
+import React, { useState } from 'react';
+const axios = require('axios');
 
 const TeacherDashboard = () => {
-  const [classTime, setClassTime] = useState(40); // Default class time in minutes
-  const [remainingTime, setRemainingTime] = useState(null);
+  const [subject, setSubject] = useState(''); // Renamed from 'course' to 'subject'
+  const [className, setClassName] = useState('');
+  const [timeLimit, setTimeLimit] = useState(''); // Renamed from 'duration' to 'timeLimit'
   const [location, setLocation] = useState('');
-  const [qrGenerated, setQrGenerated] = useState(false);
-  const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
-  const [sessionDetails, setSessionDetails] = useState({
-    subject: '',
-    className: '',
-  });
-  const [timerInterval, setTimerInterval] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
+  const [countdown, setCountdown] = useState(null);
 
-  // Start the countdown timer
-  const startTimer = (minutes) => {
-    const totalSeconds = minutes * 60;
-    let remainingSeconds = totalSeconds;
-
-    if (timerInterval) {
-      clearInterval(timerInterval); // Clear any existing timer
-    }
-
-    const interval = setInterval(() => {
-      const minutesLeft = Math.floor(remainingSeconds / 60);
-      const secondsLeft = remainingSeconds % 60;
-
-      setRemainingTime(`${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`);
-      remainingSeconds -= 1;
-
-      if (remainingSeconds < 0) {
-        clearInterval(interval);
-        setRemainingTime('Time is up!');
-      }
-    }, 1000);
-
-    setTimerInterval(interval);
-  };
-
-  // Cleanup timer on unmount
-  useEffect(() => {
-    return () => {
-      if (timerInterval) clearInterval(timerInterval);
-    };
-  }, [timerInterval]);
-
-  const handleCreateSession = async () => {
-    if (!sessionDetails.subject || !sessionDetails.className) {
-      setErrorMessage('Please fill in all fields before creating a session.');
-      return;
-    }
-
-    setErrorMessage('');
-    setSuccessMessage('');
-
-    try {
-      const response = await axios.post('http://localhost:3001/create-session', {
-        subject: sessionDetails.subject,
-        className: sessionDetails.className,
-        timeLimit: classTime,
-        location,
-      });
-
-      if (response.status === 200) {
-        setSuccessMessage('Session created successfully! QR code is available for students.');
-        setQrGenerated(true);
-        startTimer(classTime); // Start the countdown timer
-      }
-    } catch (error) {
-      console.error('Error creating session:', error);
-      setErrorMessage('Failed to create session. Please try again.');
-    }
-  };
-
+  // Function to get user's current location
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       setErrorMessage('Geolocation is not supported by your browser.');
@@ -84,7 +21,7 @@ const TeacherDashboard = () => {
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const { latitude, longitude } = position.coords;
-        setLocation(`Lat: ${latitude.toFixed(6)}, Lon: ${longitude.toFixed(6)}`);
+        setLocation(`${latitude}, ${longitude}`);
         setErrorMessage('');
       },
       (error) => {
@@ -94,78 +31,129 @@ const TeacherDashboard = () => {
     );
   };
 
+  // Function to start the countdown timer
+  const startCountdown = (minutes) => {
+    let totalSeconds = minutes * 60;
+
+    const interval = setInterval(() => {
+      const minutesLeft = Math.floor(totalSeconds / 60);
+      const secondsLeft = totalSeconds % 60;
+      setCountdown(`${minutesLeft}m ${secondsLeft}s`);
+
+      if (totalSeconds <= 0) {
+        clearInterval(interval);
+        setCountdown('Session ended.');
+      }
+
+      totalSeconds -= 1;
+    }, 1000);
+  };
+
+  // Function to create a session
+  const handleCreateSession = async () => {
+    if (!subject || !className || !timeLimit || !location) {
+      setErrorMessage('Please fill in all fields before creating a session.');
+      return;
+    }
+
+    const payload = {
+      subject, // Renamed from 'course' to 'subject'
+      className,
+      timeLimit: parseInt(timeLimit, 10), // Renamed from 'duration' to 'timeLimit'
+      location,
+    };
+
+    console.log('Payload being sent:', payload);
+
+    try {
+      const response = await axios.post('http://localhost:3001/create-session', payload, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 5000, // Timeout in milliseconds
+      });
+
+      if (response.status === 200 && response.data.success) {
+        setSuccessMessage('Session created successfully!');
+        setErrorMessage('');
+        setSubject('');
+        setClassName('');
+        setTimeLimit('');
+        setLocation('');
+        startCountdown(parseInt(timeLimit, 10)); // Start countdown
+      } else {
+        setErrorMessage(response.data.message || 'Failed to create session.');
+      }
+    } catch (error) {
+      console.error('Error during API call:', error);
+
+      if (error.response) {
+        setErrorMessage(error.response.data.message || 'Error: Failed to create session.');
+      } else if (error.request) {
+        setErrorMessage('Server not responding. Please try again later.');
+      } else {
+        setErrorMessage('Unexpected error occurred.');
+      }
+    }
+  };
+
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
-      <h1 className="text-4xl font-bold mb-6 animate-fadeIn">Teacher Dashboard</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-purple-500 to-indigo-600 text-white">
+      <h1 className="text-5xl font-bold mb-8 animate-fadeIn">🎓 Teacher Dashboard</h1>
+      <div className="bg-white text-black p-8 rounded-lg shadow-xl animate-slideInUp w-full max-w-md">
+        <h2 className="text-2xl font-semibold mb-6 text-center">Create Class Session</h2>
 
-      <div className="bg-white text-black p-6 rounded-lg shadow-lg animate-slideInUp w-96">
-        <h2 className="text-xl font-semibold mb-4">Create Class Session</h2>
-
-        <label className="block mb-2">
-          Course:
+        <label className="block mb-4">
+          <span className="font-medium">Course:</span>
           <input
             type="text"
-            value={sessionDetails.subject}
-            onChange={(e) =>
-              setSessionDetails({ ...sessionDetails, subject: e.target.value })
-            }
-            placeholder="Enter Course Name"
-            className="w-full p-2 border rounded mt-1"
+            value={subject}
+            onChange={(e) => setSubject(e.target.value)}
+            placeholder="Enter Course name"
+            className="w-full p-3 border rounded-lg mt-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
         </label>
 
-        <label className="block mb-2">
-          Class Name:
+        <label className="block mb-4">
+          <span className="font-medium">Class Name:</span>
           <input
             type="text"
-            value={sessionDetails.className}
-            onChange={(e) =>
-              setSessionDetails({ ...sessionDetails, className: e.target.value })
-            }
-            placeholder="Enter Class Name"
-            className="w-full p-2 border rounded mt-1"
+            value={className}
+            onChange={(e) => setClassName(e.target.value)}
+            placeholder="Enter class name"
+            className="w-full p-3 border rounded-lg mt-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
         </label>
 
-        <label className="block mb-2">
-          Class Duration (in minutes):
+        <label className="block mb-4">
+          <span className="font-medium">Class Duration (in minutes):</span>
           <input
             type="number"
-            value={classTime}
-            onChange={(e) => setClassTime(Number(e.target.value))}
-            placeholder="Enter Class Duration"
-            className="w-full p-2 border rounded mt-1"
+            value={timeLimit}
+            onChange={(e) => setTimeLimit(e.target.value)}
+            placeholder="Enter duration"
+            className="w-full p-3 border rounded-lg mt-1 focus:outline-none focus:ring-2 focus:ring-purple-500"
           />
         </label>
 
         <div className="mt-4">
           <button
             onClick={handleUseMyLocation}
-            className="bg-blue-500 text-white px-4 py-2 rounded mr-2 hover:bg-blue-600 transition"
+            className="bg-blue-500 text-white px-4 py-2 rounded-lg hover:bg-blue-600 transition w-full"
           >
             Use Current Location
           </button>
-          {location && (
-            <p className="mt-2 text-green-500">Location: {location}</p>
-          )}
+          {location && <p className="mt-2 text-green-600">Location: {location}</p>}
         </div>
 
         <button
           onClick={handleCreateSession}
-          className="bg-indigo-500 text-white px-4 py-2 rounded mt-4 hover:bg-indigo-600 transition w-full"
+          className="bg-green-500 text-white px-4 py-2 rounded-lg mt-6 hover:bg-green-600 transition w-full"
         >
           Create Session
         </button>
 
-        {remainingTime && (
-          <p className="mt-4 text-green-500">Remaining Time: {remainingTime}</p>
-        )}
-        {errorMessage && (
-          <p className="mt-4 text-red-500">{errorMessage}</p>
-        )}
-        {successMessage && (
-          <p className="mt-4 text-green-500">{successMessage}</p>
-        )}
+        {successMessage && <p className="mt-4 text-green-600 text-center">{successMessage}</p>}
+        {errorMessage && <p className="mt-4 text-red-600 text-center">{errorMessage}</p>}
+        {countdown && <p className="mt-4 text-yellow-600 text-center">Time Left: {countdown}</p>}
       </div>
     </div>
   );

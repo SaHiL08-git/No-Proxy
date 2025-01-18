@@ -1,91 +1,110 @@
-const express = require("express");
-const cors = require("cors");
-const bodyParser = require("body-parser");
+const express = require('express');
+const bodyParser = require('body-parser');
+const cors = require('cors');
+const qrcode = require('qrcode');
 
 const app = express();
-const PORT = 3001;
-
-// Middleware
-app.use(cors());
 app.use(bodyParser.json());
+app.use(cors());
 
-// Store session details in memory (for simplicity)
-let sessionDetails = null;
+let currentSession = null;
+let sessionTimer = null;
+let remainingTime = 0;
 
-// Default route for the root path
-app.get("/", (req, res) => {
-    res.send("Backend is working fine!");
+app.get('/', (req, res) => {
+  res.status(200).send('Server is running!');
 });
 
-// Endpoint to handle attendance
-app.post("/attendance", (req, res) => {
-    const { name, location } = req.body;
+app.post('/create-session', async (req, res) => {
+  const { subject, className, timeLimit, location } = req.body;
 
-    if (!name || !location) {
-        return res.status(400).json({ error: "Name or location missing!" });
-    }
+  console.log('Request received:', { subject, className, timeLimit, location });
 
-    console.log("Attendance Marked:", name);
-    console.log("Location:", location);
-    res.status(200).json({ message: "Attendance marked successfully." });
-});
+  if (!subject || !className || typeof timeLimit !== 'number' || !location) {
+    return res.status(400).json({
+      error: 'Invalid input: Ensure subject, className, timeLimit (number), and location are provided.',
+    });
+  }
 
-// Endpoint to handle session creation
-app.post("/create-session", (req, res) => {
-    const { subject, className, timeLimit, location } = req.body;
+  try {
+    const qrData = `Session for ${subject} (${className}) at ${location}`;
+    const qrCode = await qrcode.toDataURL(qrData);
 
-    if (!subject || !className || !timeLimit) {
-        return res.status(400).json({ error: "Subject, className, or timeLimit missing!" });
-    }
-
-    // Save session details in memory
-    sessionDetails = {
-        subject,
-        className,
-        qrCode: `QR Code for ${subject} - ${className}`,
-        remainingTime: timeLimit * 60, // Convert minutes to seconds
-        location: location || "No location provided",
-        createdAt: new Date().toISOString(), // Add timestamp
+    currentSession = {
+      subject,
+      className,
+      timeLimit,
+      location,
+      qrCode,
+      startTime: new Date(),
     };
 
-    console.log("Session Created:", sessionDetails);
+    remainingTime = timeLimit * 60;
+
+    if (sessionTimer) clearInterval(sessionTimer);
+    sessionTimer = setInterval(() => {
+      remainingTime -= 1;
+      if (remainingTime <= 0) {
+        clearInterval(sessionTimer);
+        sessionTimer = null;
+        currentSession = null;
+      }
+    }, 1000);
 
     res.status(200).json({
-        message: "Session created successfully.",
-        qrCode: sessionDetails.qrCode,
+      message: 'Session created successfully!',
+      qrCode,
     });
+  } catch (error) {
+    console.error('Error in /create-session:', error);
+    res.status(500).json({ error: 'Failed to create session.', details: error.message });
+  }
 });
 
-// Endpoint to fetch session details
-app.get("/session", (req, res) => {
-    if (!sessionDetails) {
-        return res.status(404).json({ error: "No active session found!" });
-    }
-
-    // Calculate remaining time
-    const elapsedTime = Math.floor((Date.now() - new Date(sessionDetails.createdAt).getTime()) / 1000);
-    const remainingTime = sessionDetails.remainingTime - elapsedTime;
-
-    if (remainingTime <= 0) {
-        sessionDetails = null; // Clear session if time is up
-        return res.status(404).json({ error: "Session has expired!" });
-    }
-
-    res.status(200).json({
-        qrCode: sessionDetails.qrCode,
-        remainingTime,
-        subject: sessionDetails.subject,
-        className: sessionDetails.className,
-        location: sessionDetails.location,
+app.get('/session-details', (req, res) => {
+  if (!currentSession) {
+    return res.status(200).json({
+      isActive: false, // Indicates no active session
     });
+  }
+
+  const minutesLeft = Math.floor(remainingTime / 60);
+  const secondsLeft = remainingTime % 60;
+
+  res.status(200).json({
+    isActive: true, // Indicates an active session
+    qrCode: currentSession.qrCode,
+    subject: currentSession.subject,
+    className: currentSession.className,
+    remainingTime: `${minutesLeft}:${secondsLeft.toString().padStart(2, '0')}`,
+  });
 });
 
-// Default route for errors
-app.use((req, res) => {
-    res.status(404).json({ error: "Route not found!" });
+app.post('/attendance', (req, res) => {
+  const { studentName, rollNo, qrCode, location } = req.body;
+
+  if (!studentName || !rollNo || !qrCode || !location) {
+    return res.status(400).json({ error: 'All fields are required.' });
+  }
+
+  if (!currentSession) {
+    return res.status(404).json({ error: 'No active session found.' });
+  }
+
+  const expectedQrData = `Session for ${currentSession.subject} (${currentSession.className}) at ${currentSession.location}`;
+  if (qrCode !== expectedQrData) {
+    return res.status(400).json({ error: 'Invalid QR code scanned.' });
+  }
+
+  if (location !== currentSession.location) {
+    return res.status(400).json({ error: 'Your location does not match the session location.' });
+  }
+
+  console.log(`Attendance marked for ${studentName} (${rollNo})`);
+  res.status(200).json({ message: 'Attendance marked successfully.' });
 });
 
-// Start server
+const PORT = 3001;
 app.listen(PORT, () => {
-    console.log(`Backend is running on http://localhost:${PORT}`);
+  console.log(`Server running on http://localhost:${PORT}`);
 });

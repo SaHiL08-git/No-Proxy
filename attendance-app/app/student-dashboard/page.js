@@ -1,179 +1,176 @@
 'use client';
 import React, { useState, useEffect } from 'react';
-import { Html5QrcodeScanner } from "html5-qrcode";
+import axios from 'axios';
 
 const StudentDashboard = () => {
-  const [qrData, setQrData] = useState(null);
-  const [name, setName] = useState("");
-  const [rollNumber, setRollNumber] = useState("");
-  const [remainingTime, setRemainingTime] = useState(null);
-  const [errorMessage, setErrorMessage] = useState("");
-  const [successMessage, setSuccessMessage] = useState("");
+  const [name, setName] = useState('');
+  const [rollNumber, setRollNumber] = useState('');
+  const [qrCode, setQrCode] = useState('');
+  const [scannedQR, setScannedQR] = useState(''); // State to hold scanned QR
+  const [remainingTime, setRemainingTime] = useState('');
+  const [latitude, setLatitude] = useState('');
+  const [longitude, setLongitude] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
+  const [successMessage, setSuccessMessage] = useState('');
+  const [isSessionActive, setIsSessionActive] = useState(false);
 
-  // Timer logic
   useEffect(() => {
-    if (!remainingTime) return;
-
-    const timer = setInterval(() => {
-      setRemainingTime((prev) => {
-        if (prev === "Time is up!") {
-          clearInterval(timer);
-          return prev;
+    const fetchSessionDetails = async () => {
+      try {
+        const response = await axios.get('http://localhost:3001/session-details');
+        if (response.status === 200 && response.data.isActive) {
+          setIsSessionActive(true);
+          setQrCode(response.data.qrCode);
+          setRemainingTime(response.data.remainingTime);
+        } else {
+          setIsSessionActive(false);
         }
+      } catch (error) {
+        console.error('Error fetching session details:', error);
+        setErrorMessage('Failed to load session details. Please try again.');
+      }
+    };
 
-        const [minutes, seconds] = prev.split(":").map(Number);
-        const totalSeconds = minutes * 60 + seconds - 1;
+    fetchSessionDetails();
+  }, []);
 
-        if (totalSeconds <= 0) {
-          clearInterval(timer);
-          return "Time is up!";
-        }
+  const handleMarkAttendance = async () => {
+    if (!name || !rollNumber || !scannedQR || !latitude || !longitude) {
+      setErrorMessage('Please fill in all fields, scan the QR code, and allow location access.');
+      return;
+    }
 
-        const newMinutes = Math.floor(totalSeconds / 60);
-        const newSeconds = totalSeconds % 60;
-        return `${newMinutes}:${newSeconds.toString().padStart(2, "0")}`;
-      });
-    }, 1000);
-
-    return () => clearInterval(timer);
-  }, [remainingTime]);
-
-  // Fetch session details from backend
-  const fetchSessionDetails = async () => {
     try {
-      const response = await fetch("http://localhost:3001/session");
-      if (response.ok) {
-        const data = await response.json();
-        setQrData(data.qrCode);
-        setRemainingTime(formatTime(data.remainingTime));
-      } else {
-        setErrorMessage("No active session found!");
+      const payload = {
+        studentName: name,
+        rollNo: rollNumber,
+        qrCode: scannedQR,
+        location: `${latitude},${longitude}`,
+      };
+
+      const response = await axios.post('http://localhost:3001/attendance', payload);
+
+      if (response.status === 200) {
+        setSuccessMessage('Attendance marked successfully!');
+        setErrorMessage('');
       }
     } catch (error) {
-      console.error("Error fetching session details:", error);
-      setErrorMessage("Failed to fetch session details. Try again later.");
+      console.error('Error marking attendance:', error);
+      setErrorMessage('Failed to mark attendance. Please try again.');
     }
   };
 
-  // Format time from seconds to MM:SS
-  const formatTime = (seconds) => {
-    const minutes = Math.floor(seconds / 60);
-    const remainingSeconds = seconds % 60;
-    return `${minutes}:${remainingSeconds.toString().padStart(2, "0")}`;
-  };
+  const handleUseMyLocation = () => {
+    if (!navigator.geolocation) {
+      setErrorMessage('Geolocation is not supported by your browser.');
+      return;
+    }
 
-  // Handle QR Code scanning
-  const handleScanQrCode = () => {
-    const scanner = new Html5QrcodeScanner("reader", {
-      fps: 10,
-      qrbox: 250,
-    });
-
-    scanner.render(
-      (decodedText) => {
-        setSuccessMessage(`QR Code scanned: ${decodedText}`);
-        scanner.clear(); // Stop scanning
-        document.getElementById("reader").remove();
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        setLatitude(position.coords.latitude.toFixed(6));
+        setLongitude(position.coords.longitude.toFixed(6));
+        setErrorMessage('');
       },
       (error) => {
-        console.error("QR Code scan error:", error);
+        console.error('Error getting location:', error);
+        setErrorMessage('Failed to get location. Please try again.');
       }
     );
   };
 
-  // Handle attendance submission
-  const handleSubmitAttendance = async () => {
-    if (!name || !rollNumber || !qrData) {
-      setErrorMessage("Please fill in all fields and scan the QR code.");
-      return;
-    }
-
-    setErrorMessage("");
-    setSuccessMessage("");
-
-    try {
-      const response = await fetch("http://localhost:3001/attendance", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ name, rollNumber, qrData }),
-      });
-
-      if (response.ok) {
-        setSuccessMessage("Attendance marked successfully!");
-      } else {
-        const errorData = await response.json();
-        setErrorMessage(errorData.error || "Failed to mark attendance.");
-      }
-    } catch (error) {
-      console.error("Error submitting attendance:", error);
-      setErrorMessage("Failed to submit attendance. Try again later.");
+  const handleScanQR = () => {
+    if (qrCode) {
+      setScannedQR(qrCode); // Simulates scanning the QR by directly using the `qrCode` value
+      setSuccessMessage('QR Code scanned successfully!');
+    } else {
+      setErrorMessage('QR Code is not available to scan.');
     }
   };
 
-  // Fetch session details on load
-  useEffect(() => {
-    fetchSessionDetails();
-  }, []);
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-green-500 to-teal-600 text-white">
-      <h1 className="text-4xl font-bold mb-6">Student Dashboard</h1>
+    <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-500 to-purple-600 text-white">
+      <h1 className="text-5xl font-bold mb-8">📚 Student Dashboard</h1>
 
-      <div className="bg-white text-black p-6 rounded-lg shadow-lg w-full max-w-md">
-        <h2 className="text-xl font-semibold mb-4">Mark Attendance</h2>
+      {isSessionActive ? (
+        <div className="bg-white text-black p-8 rounded-lg shadow-xl w-full max-w-md">
+          <h2 className="text-2xl font-semibold mb-6 text-center">Mark Attendance</h2>
 
-        <label className="block mb-2">
-          Name:
-          <input
-            type="text"
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            placeholder="Enter your name"
-            className="w-full p-2 border rounded mt-1"
-          />
-        </label>
+          <label className="block mb-4">
+            <span className="font-medium">Name:</span>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Enter your name"
+              className="w-full p-3 border rounded-lg mt-1"
+            />
+          </label>
 
-        <label className="block mb-2">
-          Roll Number:
-          <input
-            type="text"
-            value={rollNumber}
-            onChange={(e) => setRollNumber(e.target.value)}
-            placeholder="Enter your roll number"
-            className="w-full p-2 border rounded mt-1"
-          />
-        </label>
+          <label className="block mb-4">
+            <span className="font-medium">Roll Number:</span>
+            <input
+              type="text"
+              value={rollNumber}
+              onChange={(e) => setRollNumber(e.target.value)}
+              placeholder="Enter your roll number"
+              className="w-full p-3 border rounded-lg mt-1"
+            />
+          </label>
 
-        {qrData && (
           <div className="mt-4">
-            <h3 className="text-lg font-semibold">Scan the QR Code:</h3>
-            <div id="reader" className="w-full"></div>
             <button
-              onClick={handleScanQrCode}
-              className="bg-blue-500 text-white px-4 py-2 rounded mt-2 hover:bg-blue-600 transition"
+              onClick={handleUseMyLocation}
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg w-full"
             >
-              Start Scanning
+              Use Current Location
             </button>
+            {latitude && longitude && (
+              <p className="mt-2 text-green-600">
+                Location: Lat {latitude}, Lon {longitude}
+              </p>
+            )}
           </div>
-        )}
 
-        {remainingTime && (
-          <p className="mt-4 text-green-500">Remaining Time: {remainingTime}</p>
-        )}
-        {errorMessage && <p className="mt-4 text-red-500">{errorMessage}</p>}
-        {successMessage && (
-          <p className="mt-4 text-green-500">{successMessage}</p>
-        )}
+          <div className="mt-4 text-center">
+            <h3 className="text-lg font-medium mb-2">QR Code:</h3>
+            {qrCode ? (
+              <>
+                <img src={qrCode} alt="QR Code" className="inline-block w-32 h-32" />
+                <button
+                  onClick={handleScanQR}
+                  className="bg-blue-500 text-white px-4 py-2 rounded-lg mt-4"
+                >
+                  Scan QR
+                </button>
+              </>
+            ) : (
+              <p className="text-red-500">QR Code not available yet.</p>
+            )}
+          </div>
 
-        <button
-          onClick={handleSubmitAttendance}
-          className="bg-indigo-500 text-white px-4 py-2 rounded mt-4 hover:bg-indigo-600 transition"
-        >
-          Submit Attendance
-        </button>
-      </div>
+          <button
+            onClick={handleMarkAttendance}
+            className="bg-green-500 text-white px-4 py-2 rounded-lg mt-6 w-full"
+          >
+            Mark Attendance
+          </button>
+
+          {remainingTime && (
+            <p className="mt-4 text-yellow-500 text-center">
+              ⏳ Session Time Left: {remainingTime}
+            </p>
+          )}
+
+          {errorMessage && <p className="mt-4 text-red-500 text-center">{errorMessage}</p>}
+          {successMessage && <p className="mt-4 text-green-500 text-center">{successMessage}</p>}
+        </div>
+      ) : (
+        <div className="bg-white text-black p-8 rounded-lg shadow-xl w-full max-w-md text-center">
+          <h2 className="text-2xl font-semibold mb-6">No Active Session</h2>
+          <p className="text-gray-600">Please wait for the teacher to create a session.</p>
+        </div>
+      )}
     </div>
   );
 };
