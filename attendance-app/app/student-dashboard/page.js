@@ -5,23 +5,27 @@ import axios from 'axios';
 const StudentDashboard = () => {
   const [name, setName] = useState('');
   const [rollNumber, setRollNumber] = useState('');
-  const [qrCode, setQrCode] = useState('');
-  const [scannedQR, setScannedQR] = useState(''); // State to hold scanned QR
-  const [remainingTime, setRemainingTime] = useState('');
+  const [qrCode, setQrCode] = useState(''); // Store QR code string
+  const [scannedQR, setScannedQR] = useState('');
+  const [remainingTime, setRemainingTime] = useState(0); // Timer in seconds
+  const [timeLeft, setTimeLeft] = useState(''); // Display time
   const [latitude, setLatitude] = useState('');
   const [longitude, setLongitude] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [successMessage, setSuccessMessage] = useState('');
   const [isSessionActive, setIsSessionActive] = useState(false);
 
+  // Fetch session details
   useEffect(() => {
     const fetchSessionDetails = async () => {
       try {
-        const response = await axios.get('http://localhost:3001/session-details');
-        if (response.status === 200 && response.data.isActive) {
+        const { data } = await axios.get('http://localhost:3001/session-details');
+        if (data.isActive) {
+          console.log('Session is active');
           setIsSessionActive(true);
-          setQrCode(response.data.qrCode);
-          setRemainingTime(response.data.remainingTime);
+          setQrCode(data.qrCode); // Store the QR code string
+          const [minutes, seconds] = data.remainingTime.split(':').map(Number);
+          setRemainingTime(minutes * 60 + seconds);
         } else {
           setIsSessionActive(false);
         }
@@ -34,32 +38,86 @@ const StudentDashboard = () => {
     fetchSessionDetails();
   }, []);
 
+  // Timer logic
+  useEffect(() => {
+    let timer;
+    if (remainingTime > 0) {
+      console.log('Timer started with remaining time:', remainingTime);
+      timer = setInterval(() => {
+        setRemainingTime((prevTime) => prevTime - 1);
+      }, 1000);
+    } else if (remainingTime === 0 && isSessionActive) {
+      setIsSessionActive(false); // End session when time runs out
+    }
+
+    return () => clearInterval(timer); // Cleanup timer
+  }, [remainingTime, isSessionActive]);
+
+  // Update timeLeft state whenever remainingTime changes
+  useEffect(() => {
+    const minutes = Math.floor(remainingTime / 60);
+    const remainingSeconds = remainingTime % 60;
+    setTimeLeft(`${minutes}:${remainingSeconds.toString().padStart(2, '0')}`);
+    console.log('Updated time left:', timeLeft);
+  }, [remainingTime]);
+
+  // Simulate QR code scanning
+  const handleScanQR = () => {
+    if (qrCode) {
+      setScannedQR(qrCode); // Simulate the scan by setting the fetched QR code
+      setSuccessMessage('QR Code scanned successfully!');
+      setErrorMessage('');
+    } else {
+      setErrorMessage('No QR Code available to scan.');
+    }
+  };
+
+  // Handle attendance submission
   const handleMarkAttendance = async () => {
     if (!name || !rollNumber || !scannedQR || !latitude || !longitude) {
       setErrorMessage('Please fill in all fields, scan the QR code, and allow location access.');
       return;
     }
 
-    try {
-      const payload = {
-        studentName: name,
-        rollNo: rollNumber,
-        qrCode: scannedQR,
-        location: `${latitude},${longitude}`,
-      };
+    const payload = {
+      studentName: name,
+      rollNo: rollNumber,
+      qrCode: scannedQR,
+      location: `${latitude},${longitude}`,
+    };
 
-      const response = await axios.post('http://localhost:3001/attendance', payload);
+    try {
+      const response = await axios.post('http://localhost:3001/attendance', payload, {
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (response.status === 200) {
-        setSuccessMessage('Attendance marked successfully!');
+        setSuccessMessage(response.data.message || 'Attendance marked successfully!');
         setErrorMessage('');
+        resetForm();
+      } else {
+        setErrorMessage(response.data.error || 'Failed to mark attendance. Please try again.');
       }
     } catch (error) {
+      const errorMsg = error.response?.data?.error || 'Failed to mark attendance. Please try again.';
       console.error('Error marking attendance:', error);
-      setErrorMessage('Failed to mark attendance. Please try again.');
+      setErrorMessage(errorMsg);
+      setSuccessMessage('');
     }
   };
 
+  // Reset form state
+  const resetForm = () => {
+    setName('');
+    setRollNumber('');
+    setScannedQR('');
+    setLatitude('');
+    setLongitude('');
+  };
+
+  // Get current location
   const handleUseMyLocation = () => {
     if (!navigator.geolocation) {
       setErrorMessage('Geolocation is not supported by your browser.');
@@ -79,13 +137,11 @@ const StudentDashboard = () => {
     );
   };
 
-  const handleScanQR = () => {
-    if (qrCode) {
-      setScannedQR(qrCode); // Simulates scanning the QR by directly using the `qrCode` value
-      setSuccessMessage('QR Code scanned successfully!');
-    } else {
-      setErrorMessage('QR Code is not available to scan.');
-    }
+  // Format time for display
+  const formatTime = (seconds) => {
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}:${remainingSeconds.toString().padStart(2, '0')}`;
   };
 
   return (
@@ -135,18 +191,16 @@ const StudentDashboard = () => {
           <div className="mt-4 text-center">
             <h3 className="text-lg font-medium mb-2">QR Code:</h3>
             {qrCode ? (
-              <>
-                <img src={qrCode} alt="QR Code" className="inline-block w-32 h-32" />
-                <button
-                  onClick={handleScanQR}
-                  className="bg-blue-500 text-white px-4 py-2 rounded-lg mt-4"
-                >
-                  Scan QR
-                </button>
-              </>
+              <img src={qrCode} alt="QR Code" className="inline-block w-32 h-32" />
             ) : (
               <p className="text-red-500">QR Code not available yet.</p>
             )}
+            <button
+              onClick={handleScanQR} // Simulate scanning
+              className="bg-blue-500 text-white px-4 py-2 rounded-lg mt-4"
+            >
+              Scan QR
+            </button>
           </div>
 
           <button
@@ -156,9 +210,9 @@ const StudentDashboard = () => {
             Mark Attendance
           </button>
 
-          {remainingTime && (
+          {remainingTime > 0 && (
             <p className="mt-4 text-yellow-500 text-center">
-              ⏳ Session Time Left: {remainingTime}
+              ⏳ Session Time Left: {timeLeft}
             </p>
           )}
 
